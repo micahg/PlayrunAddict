@@ -97,6 +97,13 @@ export WEBHOOK_URL=https://yourdomain.com/webhook/drive
 ### Option 3: No Webhook (Fallback)
 If you don't set `WEBHOOK_URL`, the app will automatically fall back to polling mode every 5 minutes.
 
+## Playrun Setup
+Assuming you already have a playrun account, just run:
+
+```
+curl 'https://www.playrun.app/api/auth' -X POST -H 'Content-Type: application/json' -H 'Origin: https://www.playrun.app' --data-raw '{"email":"EMAIL","password":"PASS"}' -o playrun_token.json
+```
+
 ## Running the Application
 
 1. **Start the application:**
