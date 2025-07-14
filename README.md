@@ -44,7 +44,8 @@ gcloud services enable pubsub.googleapis.com
 ```
 
 ### Step 3: Enable Scopes
-gcloud auth application-default login --scopes=https://www.googleapis.com/auth/drive
+```bash
+gcloud auth application-default login --scopes=https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/cloud-platform
 ```
 
 ## Environment Variables
