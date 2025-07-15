@@ -30,6 +30,7 @@
 gcloud auth login
 
 # Set up Application Default Credentials
+# THIS IS DONE IN STEP 3 and probably doens't need to be here.
 gcloud auth application-default login
 
 # Set your project ID
