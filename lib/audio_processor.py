@@ -78,7 +78,8 @@ class AudioProcessor:
     async def initialize(self):
         await self.setup_google_services()
         await self.setup_playrun_auth()
-        await self.setup_push_notifications()
+        # this is triggering another call to check_for_new_m3u8_files because it starts fallback polling
+        # await self.setup_push_notifications()
 
     async def setup_google_services(self):
         try:
@@ -200,6 +201,31 @@ class AudioProcessor:
             logger.error(f"Error handling Drive notification: {e}")
             return {"error": str(e)}
 
+    def get_most_recent_file(self, files: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Get the most recently modified file from a list of files"""
+        if not files:
+            return None
+            
+        most_recent = None
+        most_recent_time = None
+        
+        for file in files:
+            modified_time_str = file.get('modifiedTime')
+            if not modified_time_str:
+                continue
+                
+            # Convert ISO formatted timestamp to datetime
+            try:
+                modified_time = datetime.fromisoformat(modified_time_str.replace('Z', '+00:00'))
+                if most_recent_time is None or modified_time > most_recent_time:
+                    most_recent_time = modified_time
+                    most_recent = file
+            except ValueError as e:
+                logger.warning(f"Could not parse modifiedTime '{modified_time_str}' for file {file.get('name', 'unknown')}: {e}")
+                continue
+                
+        return most_recent
+
     async def check_for_new_m3u8_files(self):
         try:
             results = self.drive_service.files().list(
@@ -207,26 +233,36 @@ class AudioProcessor:
                 fields="files(id, name, modifiedTime)"
             ).execute()
             files = results.get('files', [])
-            for file in files:
-                file_id = file['id']
-                file_name = file['name']
-                if file_id in self.processed_files:
-                    continue
-                logger.info(f"Found new M3U8 file: {file_name}")
-                job_id = str(uuid.uuid4())
-                job = ProcessingJob(
-                    id=job_id,
-                    status="pending",
-                    m3u8_file_id=file_id,
-                    m3u8_file_name=file_name,
-                    speed=Config.DEFAULT_SPEED,
-                    created_at=datetime.now(timezone.utc)
-                )
-                self.jobs[job_id] = job
-                self.processed_files.add(file_id)
-                asyncio.create_task(self.process_m3u8_file(job_id))
+            
+            # Get only the most recent file
+            most_recent_file = self.get_most_recent_file(files)
+            if not most_recent_file:
+                logger.info("No M3U8 files found")
+                return
+                
+            file_id = most_recent_file['id']
+            file_name = most_recent_file['name']
+            
+            if file_id in self.processed_files:
+                logger.info(f"Most recent M3U8 file '{file_name}' already processed")
+                return
+                
+            logger.info(f"Found new M3U8 file: {file_name}")
+            job_id = str(uuid.uuid4())
+            job = ProcessingJob(
+                id=job_id,
+                status="pending",
+                m3u8_file_id=file_id,
+                m3u8_file_name=file_name,
+                speed=Config.DEFAULT_SPEED,
+                created_at=datetime.now(timezone.utc)
+            )
+            self.jobs[job_id] = job
+            self.processed_files.add(file_id)
+            task = asyncio.create_task(self.process_m3u8_file(job_id))
         except Exception as e:
             logger.error(f"Error checking for new M3U8 files: {e}")
+        return task
 
     async def fallback_polling(self):
         logger.info("Starting fallback polling mode...")
@@ -250,9 +286,26 @@ class AudioProcessor:
             logger.info(f"Found {len(audio_entries)} audio files to process")
             tasks = []
             for entry in audio_entries:
-                task = asyncio.create_task(self.process_audio_file(entry, job.speed))
+                task = asyncio.create_task(self.process_audio_file(entry, job.speed), name=entry['title'])
                 tasks.append(task)
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+                await task
+                break
+
+            await asyncio.sleep(1)  # Allow tasks to start
+            
+            logger.info(f"Created {len(tasks)} tasks, starting processing...")
+            try:
+                # Add a timeout to see if tasks are hanging
+                # results = await asyncio.wait_for(
+                #     asyncio.gather(*tasks, return_exceptions=True),
+                #     timeout=300  # 5 minutes timeout
+                # )
+                # results = await asyncio.gather(*tasks, return_exceptions=True)
+                x = await task
+                logger.info(f"All tasks completed, processing {len(results)} results...")
+            except Exception as e:
+                logger.error("Tasks timed out after 5 minutes")
+                raise Exception("Processing timed out after 5 minutes")
             successful_results = []
             errors = []
             for i, result in enumerate(results):
