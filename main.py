@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+from platform import processor
 import tempfile
 import time
 import uuid
@@ -50,8 +51,7 @@ from lib.audio_processor import AudioProcessor
 async def main():
     processor = AudioProcessor()
     await processor.initialize()
-    # task = processor.check_for_new_m3u8_files()
-    # await task
+    await processor.check_for_new_m3u8_files()
     print("ALL DONE")
 
 if __name__ == "__main__":

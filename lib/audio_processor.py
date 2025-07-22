@@ -259,10 +259,9 @@ class AudioProcessor:
             )
             self.jobs[job_id] = job
             self.processed_files.add(file_id)
-            task = asyncio.create_task(self.process_m3u8_file(job_id))
+            await asyncio.create_task(self.process_m3u8_file(job_id))
         except Exception as e:
             logger.error(f"Error checking for new M3U8 files: {e}")
-        return task
 
     async def fallback_polling(self):
         logger.info("Starting fallback polling mode...")
@@ -288,20 +287,11 @@ class AudioProcessor:
             for entry in audio_entries:
                 task = asyncio.create_task(self.process_audio_file(entry, job.speed), name=entry['title'])
                 tasks.append(task)
-                await task
-                break
+                break  # Limit to processing one file at a time for testing MICAH TODO DELETE THIS
 
-            await asyncio.sleep(1)  # Allow tasks to start
-            
             logger.info(f"Created {len(tasks)} tasks, starting processing...")
             try:
-                # Add a timeout to see if tasks are hanging
-                # results = await asyncio.wait_for(
-                #     asyncio.gather(*tasks, return_exceptions=True),
-                #     timeout=300  # 5 minutes timeout
-                # )
-                # results = await asyncio.gather(*tasks, return_exceptions=True)
-                x = await task
+                results = await asyncio.gather(*tasks, return_exceptions=True)
                 logger.info(f"All tasks completed, processing {len(results)} results...")
             except Exception as e:
                 logger.error("Tasks timed out after 5 minutes")
@@ -472,6 +462,26 @@ class AudioProcessor:
                 'Authorization': f'Bearer {self.playrun_token}',
                 'Content-Type': 'application/json'
             }
+            """
+{
+    "episode":{
+        "title":"What Trump’s new tariff threats could mean for Canada",
+        "published":"2025-07-15T08:10:00.000Z",
+        "duration":1624,
+        "url":"https://mgln.ai/e/12/cbc.mc.tritondigital.com/CBC_FRONTBURNER_P/media/frontburner/frontburner-CfuolV92-20250714.mp3",
+        "uuid":"e4bf866c80356c40a307d90bf173b1c8c97ddaed",
+        "type":"mp3",
+        "podcast":{
+            "title":"Front Burner",
+            "author":"CBC",
+            "uuid":"430b0b17-426e-4494-8d9a-13f989983d36",
+            "logoUrl":"https://www.cbc.ca/radio/podcasts/images/frontburner-NEWGEM.jpg"
+        },
+        "podcast_uuid":"430b0b17-426e-4494-8d9a-13f989983d36"
+    }
+
+}
+            """
             payload = {
                 'episode': episode_data
             }
