@@ -368,29 +368,29 @@ class AudioProcessor:
                 await self.download_audio_file(url, temp_input.name)
                 with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_output:
                     await self.process_audio_with_ffmpeg(temp_input.name, temp_output.name, speed)
-                    drive_url = await self.upload_to_drive(temp_output.name, f"{title}_speedup.mp3")
+                    drive_file_id = await self.upload_to_drive(temp_output.name, f"{title}_speedup.mp3")
                     new_duration = int(duration / speed)
-                    await self.push_to_playrun({
-                        'title': title,
-                        'published': datetime.now(timezone.utc).isoformat(),
-                        'duration': new_duration,
-                        'url': drive_url,
-                        'uuid': file_uuid,
-                        'type': 'mp3',
-                        'podcast': {
-                            'title': 'Processed Podcast',
-                            'author': 'Audio Processor',
-                            'uuid': str(uuid.uuid4()),
-                            'logoUrl': ''
-                        },
-                        'podcast_uuid': str(uuid.uuid4())
-                    })
+                    # await self.push_to_playrun({
+                    #     'title': title,
+                    #     'published': datetime.now(timezone.utc).isoformat(),
+                    #     'duration': new_duration,
+                    #     'url': drive_url,
+                    #     'uuid': file_uuid,
+                    #     'type': 'mp3',
+                    #     'podcast': {
+                    #         'title': 'Processed Podcast',
+                    #         'author': 'Audio Processor',
+                    #         'uuid': str(uuid.uuid4()),
+                    #         'logoUrl': ''
+                    #     },
+                    #     'podcast_uuid': str(uuid.uuid4())
+                    # })
                     os.unlink(temp_input.name)
                     os.unlink(temp_output.name)
                     return {
                         'title': title,
                         'original_url': url,
-                        'processed_url': drive_url,
+                        'drive_file_id': drive_file_id,
                         'original_duration': duration,
                         'new_duration': new_duration,
                         'uuid': file_uuid,
@@ -449,7 +449,7 @@ class AudioProcessor:
                 fileId=file_id,
                 body=permission
             ).execute()
-            return f"https://drive.google.com/uc?id={file_id}"
+            return file_id
         except Exception as e:
             logger.error(f"Error uploading to Google Drive: {e}")
             raise
