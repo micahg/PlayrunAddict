@@ -163,27 +163,6 @@ class AudioProcessor:
             logger.error(f"Failed to setup Drive webhook: {e}")
             raise
 
-    async def authenticate_playrun(self, email: str, password: str):
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post(
-                    f"{Config.PLAYRUN_BASE_URL}/api/auth",
-                    json={"email": email, "password": password}
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        self.playrun_token = data.get('token')
-                        with open(Config.PLAYRUN_TOKEN_FILE, 'w') as f:
-                            json.dump({"token": self.playrun_token}, f)
-                        logger.info("Playrun authentication successful")
-                        return True
-                    else:
-                        logger.error(f"Playrun authentication failed: {response.status}")
-                        return False
-            except Exception as e:
-                logger.error(f"Error authenticating with Playrun: {e}")
-                return False
-
     async def handle_drive_notification(self, request):
         try:
             signature = request.headers.get('X-Goog-Channel-Token')
@@ -259,9 +238,11 @@ class AudioProcessor:
             )
             self.jobs[job_id] = job
             self.processed_files.add(file_id)
-            await asyncio.create_task(self.process_m3u8_file(job_id))
+            results = await asyncio.create_task(self.process_m3u8_file(job_id))
+            logger.info(f"CHECK self.jobs: {self.jobs}")
         except Exception as e:
             logger.error(f"Error checking for new M3U8 files: {e}")
+        return results
 
     async def fallback_polling(self):
         logger.info("Starting fallback polling mode...")
@@ -316,6 +297,7 @@ class AudioProcessor:
                 f"Errors: {len(errors)}"
             )
             logger.info(f"Job {job_id} completed with {len(successful_results)} successful files")
+            return successful_results
         except Exception as e:
             job.status = "failed"
             job.error = str(e)
@@ -370,21 +352,6 @@ class AudioProcessor:
                     await self.process_audio_with_ffmpeg(temp_input.name, temp_output.name, speed)
                     drive_file_id = await self.upload_to_drive(temp_output.name, f"{title}_speedup.mp3")
                     new_duration = int(duration / speed)
-                    # await self.push_to_playrun({
-                    #     'title': title,
-                    #     'published': datetime.now(timezone.utc).isoformat(),
-                    #     'duration': new_duration,
-                    #     'url': drive_url,
-                    #     'uuid': file_uuid,
-                    #     'type': 'mp3',
-                    #     'podcast': {
-                    #         'title': 'Processed Podcast',
-                    #         'author': 'Audio Processor',
-                    #         'uuid': str(uuid.uuid4()),
-                    #         'logoUrl': ''
-                    #     },
-                    #     'podcast_uuid': str(uuid.uuid4())
-                    # })
                     os.unlink(temp_input.name)
                     os.unlink(temp_output.name)
                     return {
@@ -453,48 +420,6 @@ class AudioProcessor:
         except Exception as e:
             logger.error(f"Error uploading to Google Drive: {e}")
             raise
-
-    async def push_to_playrun(self, episode_data: Dict[str, Any]):
-        if not self.playrun_token:
-            raise Exception("No Playrun token available")
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'Authorization': f'Bearer {self.playrun_token}',
-                'Content-Type': 'application/json'
-            }
-            """
-{
-    "episode":{
-        "title":"What Trump’s new tariff threats could mean for Canada",
-        "published":"2025-07-15T08:10:00.000Z",
-        "duration":1624,
-        "url":"https://mgln.ai/e/12/cbc.mc.tritondigital.com/CBC_FRONTBURNER_P/media/frontburner/frontburner-CfuolV92-20250714.mp3",
-        "uuid":"e4bf866c80356c40a307d90bf173b1c8c97ddaed",
-        "type":"mp3",
-        "podcast":{
-            "title":"Front Burner",
-            "author":"CBC",
-            "uuid":"430b0b17-426e-4494-8d9a-13f989983d36",
-            "logoUrl":"https://www.cbc.ca/radio/podcasts/images/frontburner-NEWGEM.jpg"
-        },
-        "podcast_uuid":"430b0b17-426e-4494-8d9a-13f989983d36"
-    }
-
-}
-            """
-            payload = {
-                'episode': episode_data
-            }
-            async with session.post(
-                f"{Config.PLAYRUN_BASE_URL}/api/playlist/subscribe",
-                headers=headers,
-                json=payload
-            ) as response:
-                if response.status == 200:
-                    logger.info(f"Successfully pushed to Playrun: {episode_data['title']}")
-                else:
-                    error_text = await response.text()
-                    raise Exception(f"Failed to push to Playrun: HTTP {response.status} - {error_text}")
 
     async def send_notification(self, message: str):
         if not all([Config.EMAIL_USERNAME, Config.EMAIL_PASSWORD, Config.NOTIFICATION_EMAIL]):

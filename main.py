@@ -51,8 +51,8 @@ from lib.audio_processor import AudioProcessor
 async def main():
     processor = AudioProcessor()
     await processor.initialize()
-    await processor.check_for_new_m3u8_files()
-    print("ALL DONE")
+    results = await processor.check_for_new_m3u8_files()
+    print("Results:", results)
 
 if __name__ == "__main__":
     asyncio.run(main())
