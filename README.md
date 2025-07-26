@@ -116,3 +116,11 @@ curl 'https://www.playrun.app/api/auth' -X POST -H 'Content-Type: application/js
    - Automatically use your Google credentials (no files needed!)
    - Set up Pub/Sub for notifications
    - Start monitoring Google Drive for M
+
+
+# TODO
+
+- review this document for accuracy (set it up somewhere and ensure its tight)
+- _add_item_to_channel is looking for new_duration, which is too specific.
+  - refactor so it comes through as duration (we should still have original duration)
+- vibe some unit tests

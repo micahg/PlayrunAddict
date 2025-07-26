@@ -20,45 +20,17 @@ class PodcastRSSProcessor:
     
     def __init__(self, channel_title: str = "Playrun Addict Custom Feed"):
         self.channel_title = channel_title
-        
-    def extract_drive_id(self, drive_url: str) -> str:
-        """
-        Extract the Google Drive file ID from a drive.google.com URL.
-        
-        Args:
-            drive_url: Google Drive URL (e.g., https://drive.google.com/uc?id=FILE_ID)
-            
-        Returns:
-            The extracted file ID
-            
-        Raises:
-            ValueError: If the drive ID cannot be extracted
-        """
-        # Pattern to match various Google Drive URL formats
-        patterns = [
-            r'id=([a-zA-Z0-9_-]+)',  # ?id=FILE_ID format
-            r'/file/d/([a-zA-Z0-9_-]+)',  # /file/d/FILE_ID format
-            r'/d/([a-zA-Z0-9_-]+)',  # /d/FILE_ID format
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, drive_url)
-            if match:
-                return match.group(1)
-        
-        raise ValueError(f"Could not extract Drive ID from URL: {drive_url}")
-    
-    def generate_download_url(self, drive_url: str) -> str:
+
+    def generate_download_url(self, drive_id: str) -> str:
         """
         Convert a Google Drive URL to a direct download URL.
         
         Args:
-            drive_url: Original Google Drive URL
+            drive_id: Google Drive file ID
             
         Returns:
             Direct download URL in the format required
         """
-        drive_id = self.extract_drive_id(drive_url)
         return f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&authuser=0&confirm=t"
     
     def create_rss_xml(self, processed_files: List[Dict[str, Any]], 
@@ -135,42 +107,32 @@ class PodcastRSSProcessor:
         title = ET.SubElement(item, "title")
         title.text = file_data.get('title', 'Untitled Episode')
         
-        # Description (use title as description if not provided)
-        description = ET.SubElement(item, "description")
-        description.text = file_data.get('description', file_data.get('title', 'No description available'))
-        
         # GUID
         guid = ET.SubElement(item, "guid")
         guid.text = file_data.get('uuid', f"episode-{hash(file_data.get('title', ''))}")
         guid.set("isPermaLink", "false")
         
         # Publication date (use current time if not provided)
-        pub_date = ET.SubElement(item, "pubDate")
-        if 'published' in file_data:
-            # If published is already a datetime string, use it
-            if isinstance(file_data['published'], str):
-                try:
-                    dt = datetime.fromisoformat(file_data['published'].replace('Z', '+00:00'))
-                    pub_date.text = dt.strftime("%a, %d %b %Y %H:%M:%S %z")
-                except ValueError:
-                    pub_date.text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
-            else:
-                pub_date.text = file_data['published'].strftime("%a, %d %b %Y %H:%M:%S %z")
-        else:
-            pub_date.text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
+        # pub_date = ET.SubElement(item, "pubDate")
+        # if 'published' in file_data:
+        #     # If published is already a datetime string, use it
+        #     if isinstance(file_data['published'], str):
+        #         try:
+        #             dt = datetime.fromisoformat(file_data['published'].replace('Z', '+00:00'))
+        #             pub_date.text = dt.strftime("%a, %d %b %Y %H:%M:%S %z")
+        #         except ValueError:
+        #             pub_date.text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
+        #     else:
+        #         pub_date.text = file_data['published'].strftime("%a, %d %b %Y %H:%M:%S %z")
+        # else:
+        #     pub_date.text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
         
         # Enclosure (the actual audio file)
         enclosure = ET.SubElement(item, "enclosure")
         
         # Convert Google Drive URL to download URL
-        processed_url = file_data.get('processed_url', '')
-        if processed_url:
-            try:
-                download_url = self.generate_download_url(processed_url)
-                enclosure.set("url", download_url)
-            except ValueError as e:
-                logger.warning(f"Could not generate download URL for {processed_url}: {e}")
-                enclosure.set("url", processed_url)  # Fallback to original URL
+        download_url = self.generate_download_url(file_data['drive_file_id'])
+        enclosure.set("url", download_url)
         
         # Set enclosure type (MIME type)
         enclosure.set("type", "audio/mpeg")
@@ -184,20 +146,6 @@ class PodcastRSSProcessor:
         else:
             # Default length if not available
             enclosure.set("length", "0")
-        
-        # iTunes specific item tags
-        itunes_duration = ET.SubElement(item, "itunes:duration")
-        if duration:
-            # Convert seconds to HH:MM:SS format
-            hours = int(duration // 3600)
-            minutes = int((duration % 3600) // 60)
-            seconds = int(duration % 60)
-            itunes_duration.text = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        else:
-            itunes_duration.text = "00:00:00"
-        
-        itunes_explicit = ET.SubElement(item, "itunes:explicit")
-        itunes_explicit.text = "false"
     
     def save_rss_to_file(self, processed_files: List[Dict[str, Any]], 
                          output_path: str,

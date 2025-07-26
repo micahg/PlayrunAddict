@@ -47,12 +47,16 @@ logger = logging.getLogger(__name__)
 
 import asyncio
 from lib.audio_processor import AudioProcessor
+from lib.podcast_rss_processor import PodcastRSSProcessor
 
 async def main():
     processor = AudioProcessor()
+    podcast_processor = PodcastRSSProcessor()
     await processor.initialize()
     results = await processor.check_for_new_m3u8_files()
     print("Results:", results)
+    xml_feed = podcast_processor.create_rss_xml(results)
+    print(xml_feed)
 
 if __name__ == "__main__":
     asyncio.run(main())
