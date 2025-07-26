@@ -14,7 +14,6 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from google.auth import default
-from google.cloud import pubsub_v1
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import subprocess
@@ -35,8 +34,6 @@ class Config:
     SUBSCRIPTION_NAME = os.getenv('PUBSUB_SUBSCRIPTION_NAME', 'm3u8-processor-sub')
     WEBHOOK_URL = os.getenv('WEBHOOK_URL')
     WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', str(uuid.uuid4()))
-    PLAYRUN_BASE_URL = 'https://www.playrun.app'
-    PLAYRUN_TOKEN_FILE = 'playrun_token.json'
     DEFAULT_SPEED = 1.5
     MAX_WORKERS = max(1, multiprocessing.cpu_count() - 1)
     SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -68,8 +65,6 @@ class DriveNotification(BaseModel):
 class AudioProcessor:
     def __init__(self):
         self.drive_service = None
-        self.pubsub_client = None
-        self.playrun_token = None
         self.executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS)
         self.jobs: Dict[str, ProcessingJob] = {}
         self.processed_files = set()
@@ -86,89 +81,11 @@ class AudioProcessor:
             if not Config.PROJECT_ID:
                 Config.PROJECT_ID = project_id
             self.drive_service = build('drive', 'v3', credentials=credentials)
-            self.pubsub_client = pubsub_v1.PublisherClient()
             logger.info(f"Google services initialized with project: {Config.PROJECT_ID}")
         except Exception as e:
             logger.error(f"Failed to initialize Google services: {e}")
             logger.info("Make sure you've run 'gcloud auth application-default login'")
             raise
-
-    async def setup_push_notifications(self):
-        try:
-            await self.create_pubsub_topic()
-            if Config.WEBHOOK_URL:
-                await self.setup_drive_webhook()
-            else:
-                logger.warning("No WEBHOOK_URL configured. Falling back to polling mode.")
-                asyncio.create_task(self.fallback_polling())
-        except Exception as e:
-            logger.error(f"Failed to setup push notifications: {e}")
-            logger.info("Falling back to polling mode")
-            asyncio.create_task(self.fallback_polling())
-
-    async def create_pubsub_topic(self):
-        try:
-            topic_path = self.pubsub_client.topic_path(Config.PROJECT_ID, Config.TOPIC_NAME)
-            try:
-                topic = self.pubsub_client.create_topic(request={"name": topic_path})
-                logger.info(f"Created Pub/Sub topic: {topic.name}")
-            except Exception as e:
-                if "already exists" in str(e).lower():
-                    logger.info(f"Pub/Sub topic already exists: {topic_path}")
-                else:
-                    raise
-            subscriber = pubsub_v1.SubscriberClient()
-            subscription_path = subscriber.subscription_path(Config.PROJECT_ID, Config.SUBSCRIPTION_NAME)
-            try:
-                subscription = subscriber.create_subscription(
-                    request={"name": subscription_path, "topic": topic_path}
-                )
-                logger.info(f"Created Pub/Sub subscription: {subscription.name}")
-            except Exception as e:
-                if "already exists" in str(e).lower():
-                    logger.info(f"Pub/Sub subscription already exists: {subscription_path}")
-                else:
-                    raise
-        except Exception as e:
-            logger.error(f"Error setting up Pub/Sub: {e}")
-            raise
-
-    async def setup_drive_webhook(self):
-        try:
-            channel_id = str(uuid.uuid4())
-            channel = {
-                'id': channel_id,
-                'type': 'web_hook',
-                'address': Config.WEBHOOK_URL,
-                'token': Config.WEBHOOK_SECRET,
-                'expiration': int((time.time() + 86400) * 1000)
-            }
-            result = self.drive_service.files().watch(
-                fileId='root',
-                body=channel
-            ).execute()
-            self.notification_channels[channel_id] = result
-            logger.info(f"Drive webhook setup successful: {channel_id}")
-        except Exception as e:
-            logger.error(f"Failed to setup Drive webhook: {e}")
-            raise
-
-    async def handle_drive_notification(self, request):
-        try:
-            signature = request.headers.get('X-Goog-Channel-Token')
-            if signature != Config.WEBHOOK_SECRET:
-                logger.warning("Invalid webhook signature")
-                return {"error": "Invalid signature"}
-            body = await request.body()
-            headers = dict(request.headers)
-            resource_id = headers.get('X-Goog-Resource-ID')
-            resource_uri = headers.get('X-Goog-Resource-URI')
-            logger.info(f"Received Drive notification for resource: {resource_id}")
-            await self.check_for_new_m3u8_files()
-            return {"status": "processed"}
-        except Exception as e:
-            logger.error(f"Error handling Drive notification: {e}")
-            return {"error": str(e)}
 
     def get_most_recent_file(self, files: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Get the most recently modified file from a list of files"""
