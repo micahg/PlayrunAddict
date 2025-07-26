@@ -124,3 +124,5 @@ curl 'https://www.playrun.app/api/auth' -X POST -H 'Content-Type: application/js
 - _add_item_to_channel is looking for new_duration, which is too specific.
   - refactor so it comes through as duration (we should still have original duration)
 - vibe some unit tests
+- ensure local files are deleted
+- ensure remote files are deleted (maybe we can pull the playlist before we update it)

@@ -77,7 +77,6 @@ class AudioProcessor:
 
     async def initialize(self):
         await self.setup_google_services()
-        await self.setup_playrun_auth()
         # this is triggering another call to check_for_new_m3u8_files because it starts fallback polling
         # await self.setup_push_notifications()
 
@@ -93,15 +92,6 @@ class AudioProcessor:
             logger.error(f"Failed to initialize Google services: {e}")
             logger.info("Make sure you've run 'gcloud auth application-default login'")
             raise
-
-    async def setup_playrun_auth(self):
-        if os.path.exists(Config.PLAYRUN_TOKEN_FILE):
-            with open(Config.PLAYRUN_TOKEN_FILE, 'r') as f:
-                data = json.load(f)
-                self.playrun_token = data.get('token')
-                logger.info("Loaded existing Playrun token")
-        else:
-            logger.warning("No Playrun token found. Use /auth/playrun endpoint to authenticate")
 
     async def setup_push_notifications(self):
         try:
