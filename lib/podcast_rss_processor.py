@@ -7,8 +7,8 @@ Generates podcast RSS XML files from processed audio files.
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Dict, List, Any
-import re
 import logging
+from .gdrive import GoogleDrive
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +20,6 @@ class PodcastRSSProcessor:
     
     def __init__(self, channel_title: str = "Playrun Addict Custom Feed"):
         self.channel_title = channel_title
-
-    def generate_download_url(self, drive_id: str) -> str:
-        """
-        Convert a Google Drive URL to a direct download URL.
-        
-        Args:
-            drive_id: Google Drive file ID
-            
-        Returns:
-            Direct download URL in the format required
-        """
-        return f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&authuser=0&confirm=t"
     
     def create_rss_xml(self, processed_files: List[Dict[str, Any]], 
                        feed_description: str = "Custom podcast feed generated from processed audio files",
@@ -131,7 +119,7 @@ class PodcastRSSProcessor:
         enclosure = ET.SubElement(item, "enclosure")
         
         # Convert Google Drive URL to download URL
-        download_url = self.generate_download_url(file_data['drive_file_id'])
+        download_url = GoogleDrive.generate_download_url(file_data['drive_file_id'])
         enclosure.set("url", download_url)
         
         # Set enclosure type (MIME type)

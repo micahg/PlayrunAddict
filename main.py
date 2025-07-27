@@ -62,9 +62,10 @@ async def main():
     processor = AudioProcessor()
     podcast_processor = PodcastRSSProcessor()
     results = await processor.check_for_new_m3u8_files()
-    print("Results:", results)
     xml_feed = podcast_processor.create_rss_xml(results)
-    print(xml_feed)
+    rss_drive_id = await GoogleDrive.instance().upload_string_to_drive(xml_feed, "playrun_addict.xml", mimetype='application/rss+xml')
+    rss_download_url = GoogleDrive.generate_download_url(rss_drive_id)
+    print(f"RSS Feed Download URL: {rss_download_url}")
 
 if __name__ == "__main__":
     asyncio.run(main())
