@@ -17,31 +17,11 @@ from google.auth import default
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import subprocess
-import multiprocessing
 from pydantic import BaseModel
+from .config import Config
+from .gdrive import GoogleDrive
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
-
-class Config:
-    SCOPES = ['https://www.googleapis.com/auth/drive']
-    PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT_ID')
-    TOPIC_NAME = os.getenv('PUBSUB_TOPIC_NAME', 'm3u8-processor')
-    SUBSCRIPTION_NAME = os.getenv('PUBSUB_SUBSCRIPTION_NAME', 'm3u8-processor-sub')
-    WEBHOOK_URL = os.getenv('WEBHOOK_URL')
-    WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', str(uuid.uuid4()))
-    DEFAULT_SPEED = 1.5
-    MAX_WORKERS = max(1, multiprocessing.cpu_count() - 1)
-    SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-    SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
-    EMAIL_USERNAME = os.getenv('EMAIL_USERNAME')
-    EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
-    NOTIFICATION_EMAIL = os.getenv('NOTIFICATION_EMAIL')
-    POLL_INTERVAL = int(os.getenv('POLL_INTERVAL', '300'))
 
 class ProcessingJob(BaseModel):
     id: str
@@ -64,7 +44,6 @@ class DriveNotification(BaseModel):
 
 class AudioProcessor:
     def __init__(self):
-        self.drive_service = None
         self.executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS)
         self.jobs: Dict[str, ProcessingJob] = {}
         self.processed_files = set()
@@ -74,18 +53,6 @@ class AudioProcessor:
         await self.setup_google_services()
         # this is triggering another call to check_for_new_m3u8_files because it starts fallback polling
         # await self.setup_push_notifications()
-
-    async def setup_google_services(self):
-        try:
-            credentials, project_id = default(scopes=Config.SCOPES)
-            if not Config.PROJECT_ID:
-                Config.PROJECT_ID = project_id
-            self.drive_service = build('drive', 'v3', credentials=credentials)
-            logger.info(f"Google services initialized with project: {Config.PROJECT_ID}")
-        except Exception as e:
-            logger.error(f"Failed to initialize Google services: {e}")
-            logger.info("Make sure you've run 'gcloud auth application-default login'")
-            raise
 
     def get_most_recent_file(self, files: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Get the most recently modified file from a list of files"""
@@ -114,7 +81,7 @@ class AudioProcessor:
 
     async def check_for_new_m3u8_files(self):
         try:
-            results = self.drive_service.files().list(
+            results = GoogleDrive.instance().service().files().list(
                 q="name contains '.m3u' and trashed=false",
                 fields="files(id, name, modifiedTime)"
             ).execute()
@@ -239,7 +206,7 @@ class AudioProcessor:
 
     async def download_drive_file(self, file_id: str) -> str:
         try:
-            request = self.drive_service.files().get_media(fileId=file_id)
+            request = GoogleDrive.instance().service().files().get_media(fileId=file_id)
             content = request.execute()
             return content.decode('utf-8')
         except Exception as e:
@@ -257,7 +224,7 @@ class AudioProcessor:
                 await self.download_audio_file(url, temp_input.name)
                 with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_output:
                     await self.process_audio_with_ffmpeg(temp_input.name, temp_output.name, speed)
-                    drive_file_id = await self.upload_to_drive(temp_output.name, f"{title}_speedup.mp3")
+                    drive_file_id = await GoogleDrive.instance().upload_to_drive(temp_output.name, f"{title}_speedup.mp3")
                     new_duration = int(duration / speed)
                     os.unlink(temp_input.name)
                     os.unlink(temp_output.name)
@@ -300,32 +267,6 @@ class AudioProcessor:
             logger.info(f"Audio processed successfully: {speed}x speed")
         except Exception as e:
             logger.error(f"Error processing audio with FFmpeg: {e}")
-            raise
-
-    async def upload_to_drive(self, file_path: str, filename: str) -> str:
-        try:
-            file_metadata = {
-                'name': filename,
-                'parents': []
-            }
-            media = MediaFileUpload(file_path, mimetype='audio/mpeg')
-            file = self.drive_service.files().create(
-                body=file_metadata,
-                media_body=media,
-                fields='id'
-            ).execute()
-            file_id = file.get('id')
-            permission = {
-                'type': 'anyone',
-                'role': 'reader'
-            }
-            self.drive_service.permissions().create(
-                fileId=file_id,
-                body=permission
-            ).execute()
-            return file_id
-        except Exception as e:
-            logger.error(f"Error uploading to Google Drive: {e}")
             raise
 
     async def send_notification(self, message: str):

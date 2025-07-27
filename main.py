@@ -48,11 +48,19 @@ logger = logging.getLogger(__name__)
 import asyncio
 from lib.audio_processor import AudioProcessor
 from lib.podcast_rss_processor import PodcastRSSProcessor
+from lib.config import Config
+from lib.gdrive import GoogleDrive
 
 async def main():
+    # Initialize Google Drive service
+    try:
+        GoogleDrive.instance()
+    except Exception as e:
+        logger.error(f"Error setting up Google Drive: {e}")
+        return
+
     processor = AudioProcessor()
     podcast_processor = PodcastRSSProcessor()
-    await processor.initialize()
     results = await processor.check_for_new_m3u8_files()
     print("Results:", results)
     xml_feed = podcast_processor.create_rss_xml(results)
