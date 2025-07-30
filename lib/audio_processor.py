@@ -105,7 +105,6 @@ class AudioProcessor:
             self.jobs[job_id] = job
             self.processed_files.add(file_id)
             results = await asyncio.create_task(self.process_m3u8_file(job_id))
-            logger.info(f"CHECK self.jobs: {self.jobs}")
         except Exception as e:
             logger.error(f"Error checking for new M3U8 files: {e}")
         return results
@@ -130,13 +129,27 @@ class AudioProcessor:
             if not audio_entries:
                 raise Exception("No audio files found in M3U8 playlist")
             logger.info(f"Found {len(audio_entries)} audio files to process")
+            
+            # Download files sequentially and start processing as each completes
+            logger.info("Starting downloads and processing...")
             tasks = []
             for entry in audio_entries:
+                temp_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
+                temp_file.close()  # Close file handle but keep the file
+                
+                download_start = time.time()
+                await self.download_audio_file(entry['url'], temp_file.name)
+                download_time = time.time() - download_start
+                logger.info(f"Downloaded {entry['title']} in {download_time:.2f} seconds")
+                
+                # Add local file path to entry
+                entry['local_file'] = temp_file.name
+                
+                # Start processing immediately after download
                 task = asyncio.create_task(self.process_audio_file(entry, job.speed), name=entry['title'])
                 tasks.append(task)
-                # break  # Limit to processing one file at a time for testing MICAH TODO DELETE THIS
 
-            logger.info(f"Created {len(tasks)} tasks, starting processing...")
+            logger.info(f"All downloads complete, {len(tasks)} processing tasks running...")
             try:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 logger.info(f"All tasks completed, processing {len(results)} results...")
@@ -212,38 +225,54 @@ class AudioProcessor:
             title = entry['title']
             duration = entry['duration']
             file_uuid = entry['uuid']
+            local_file = entry['local_file']
+            
             logger.info(f"Processing audio file: {title}")
-            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_input:
-                await self.download_audio_file(url, temp_input.name)
-                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_output:
-                    await self.process_audio_with_ffmpeg(temp_input.name, temp_output.name, speed)
-                    # drive_file_id = await GoogleDrive.instance().upload_to_drive(temp_output.name, f"{title}_speedup.mp3", mimetype='audio/mpeg')
-                    new_duration = int(duration / speed)
-                    os.unlink(temp_input.name)
-                    # os.unlink(temp_output.name)
-                    return {
-                        'title': title,
-                        'original_url': url,
-                        # 'drive_file_id': drive_file_id,
-                        'original_duration': duration,
-                        'new_duration': new_duration,
-                        'uuid': file_uuid,
-                        'speed': speed,
-                        'temp_file': temp_output.name,
-                    }
+            
+            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_output:
+                ffmpeg_start = time.time()
+                await self.process_audio_with_ffmpeg(local_file, temp_output.name, speed)
+                ffmpeg_time = time.time() - ffmpeg_start
+                logger.info(f"FFmpeg processed {title} in {ffmpeg_time:.2f} seconds")
+                
+                new_duration = int(duration / speed)
+                
+                # Clean up input file
+                os.unlink(local_file)
+                
+                return {
+                    'title': title,
+                    'original_url': url,
+                    'original_duration': duration,
+                    'new_duration': new_duration,
+                    'uuid': file_uuid,
+                    'speed': speed,
+                    'temp_file': temp_output.name,
+                }
         except Exception as e:
             logger.error(f"Error processing audio file {title}: {e}")
+            # Clean up input file on error
+            if 'local_file' in entry and os.path.exists(entry['local_file']):
+                os.unlink(entry['local_file'])
             raise
 
     async def download_audio_file(self, url: str, output_path: str):
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    with open(output_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            f.write(chunk)
-                else:
-                    raise Exception(f"Failed to download audio file: HTTP {response.status}")
+        logger.info(f"Downloading audio from: {url}")
+        timeout = aiohttp.ClientTimeout(total=None, connect=15, sock_read=10)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        with open(output_path, 'wb') as f:
+                            async for chunk in response.content.iter_chunked(8192):
+                                f.write(chunk)
+                    else:
+                        raise Exception(f"Failed to download audio file: HTTP {response.status}")
+        except asyncio.TimeoutError as e:
+            raise Exception(f"Download timeout for {url}: Connection timeout or no data received for 10 seconds")
+        except Exception as e:
+            # Re-raise other exceptions as-is
+            raise
 
     async def process_audio_with_ffmpeg(self, input_path: str, output_path: str, speed: float):
         try:
@@ -255,9 +284,22 @@ class AudioProcessor:
                 '-y',
                 output_path
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(f"FFmpeg error: {result.stderr}")
+            
+            logger.info(f"Starting FFmpeg processing with {speed}x speed...")
+            
+            # Use async subprocess instead of blocking subprocess.run()
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                stderr_text = stderr.decode() if stderr else "Unknown error"
+                raise Exception(f"FFmpeg error (code {process.returncode}): {stderr_text}")
+                
             logger.info(f"Audio processed successfully: {speed}x speed")
         except Exception as e:
             logger.error(f"Error processing audio with FFmpeg: {e}")

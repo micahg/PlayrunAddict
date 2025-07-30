@@ -49,6 +49,18 @@ class GoogleDrive:
         return f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&authuser=0&confirm=t"
 
 
+    def _set_file_permissions(self, file_id: str, filename: str):
+        """Set file permissions to be readable by anyone with the link"""
+        permission = {
+            'type': 'anyone',
+            'role': 'reader'
+        }
+        logger.info(f"Setting permissions for {filename} (ID: {file_id})")
+        self.drive_service.permissions().create(
+            fileId=file_id,
+            body=permission
+        ).execute()
+
     async def upload_to_drive(self, file_path: str, filename: str, mimetype='audio/mpeg') -> str:
         try:
             file_metadata = {
@@ -56,23 +68,30 @@ class GoogleDrive:
                 'parents': []
             }
             media = MediaFileUpload(file_path, mimetype)
-            file = self.drive_service.files().create(
-                body=file_metadata,
-                media_body=media,
-                fields='id'
-            ).execute()
+            logger.info(f"Uploading {file_path} ({filename})")
+            
+            # Retry logic for file creation
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    file = self.drive_service.files().create(
+                        body=file_metadata,
+                        media_body=media,
+                        fields='id'
+                    ).execute()
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    logger.warning(f"Upload attempt {attempt + 1} failed for {filename}: {e}")
+            
             file_id = file.get('id')
-            permission = {
-                'type': 'anyone',
-                'role': 'reader'
-            }
-            self.drive_service.permissions().create(
-                fileId=file_id,
-                body=permission
-            ).execute()
+            logger.info(f"File uploaded successfully: {filename} (ID: {file_id})")
+            
+            self._set_file_permissions(file_id, filename)
             return file_id
         except Exception as e:
-            logger.error(f"Error uploading to Google Drive: {e}")
+            logger.error(f"Error {filename} uploading to Google Drive: {e}")
             raise
 
     async def upload_string_to_drive(self, content: str, filename: str, mimetype='text/plain', file_id: str = None) -> str:
