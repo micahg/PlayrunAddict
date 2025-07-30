@@ -61,7 +61,25 @@ async def main():
 
     processor = AudioProcessor()
     podcast_processor = PodcastRSSProcessor()
+    rss_drive_id = podcast_processor.get_rss_feed_id()
+
     results = await processor.check_for_new_m3u8_files()
+    # check for an existing playlist
+    if not results or len(results) == 0:
+        logger.error("M3U8 resulted in no files")
+        return
+    
+    logger.info(f"Processed {len(results)} audio files")
+    for result in results:
+        logger.info(f"Uploading {result['title']} to Google Drive")
+        try:
+            drive_file_id = await GoogleDrive.instance().upload_to_drive(result['temp_file'], f"{result['title']}.mp3")
+            os.unlink(result['temp_file'])
+            result['drive_file_id'] = drive_file_id
+        except Exception as e:
+            logger.error(f"Failed to upload {result['title']} to Google Drive: {e}")
+            return
+
     xml_feed = podcast_processor.create_rss_xml(results)
     rss_drive_id = await GoogleDrive.instance().upload_string_to_drive(xml_feed, "playrun_addict.xml", mimetype='application/rss+xml')
     rss_download_url = GoogleDrive.generate_download_url(rss_drive_id)

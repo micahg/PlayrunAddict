@@ -75,7 +75,7 @@ class GoogleDrive:
             logger.error(f"Error uploading to Google Drive: {e}")
             raise
 
-    async def upload_string_to_drive(self, content: str, filename: str, mimetype='text/plain') -> str:
+    async def upload_string_to_drive(self, content: str, filename: str, mimetype='text/plain', file_id: str = None) -> str:
         try:
             file_metadata = {
                 'name': filename,
@@ -84,11 +84,20 @@ class GoogleDrive:
             media = MediaIoBaseUpload(io.BytesIO(content.encode('utf-8')),
                           mimetype=mimetype,
                           resumable=True)
-            file = self.drive_service.files().create(
-                body=file_metadata,
-                media_body=media,
-                fields='id'
-            ).execute()
+            if file_id:
+                # Update existing file
+                file = self.drive_service.files().update(
+                    fileId=file_id,
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id'
+                ).execute()
+            else:
+                file = self.drive_service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id'
+                ).execute()
             file_id = file.get('id')
             permission = {
                 'type': 'anyone',
@@ -101,4 +110,19 @@ class GoogleDrive:
             return file_id
         except Exception as e:
             logger.error(f"Error uploading string to Google Drive: {e}")
+            raise
+
+    def get_files(self, query: str, most_recent: bool = False):
+        orderBy = 'modifiedTime desc' if most_recent else None
+        pageSize = 1 if most_recent else None
+        try:
+            results = GoogleDrive.instance().drive_service.files().list(
+                q=query,
+                orderBy=orderBy,
+                pageSize=pageSize,
+                fields="files(id, name, modifiedTime)"
+            ).execute()
+            return results.get('files', [])
+        except Exception as e:
+            logger.error(f"Error searching for existing RSS file: {e}")
             raise

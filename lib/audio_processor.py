@@ -23,6 +23,8 @@ from .gdrive import GoogleDrive
 
 logger = logging.getLogger(__name__)
 
+M3U_QUERY = "name contains '.m3u' and trashed=false"
+
 class ProcessingJob(BaseModel):
     id: str
     status: str
@@ -81,17 +83,7 @@ class AudioProcessor:
 
     async def check_for_new_m3u8_files(self):
         try:
-            results = GoogleDrive.instance().service().files().list(
-                q="name contains '.m3u' and trashed=false",
-                fields="files(id, name, modifiedTime)"
-            ).execute()
-            files = results.get('files', [])
-            
-            # Get only the most recent file
-            most_recent_file = self.get_most_recent_file(files)
-            if not most_recent_file:
-                logger.info("No M3U8 files found")
-                return
+            most_recent_file = GoogleDrive.instance().get_files(M3U_QUERY, most_recent=True)[0]
                 
             file_id = most_recent_file['id']
             file_name = most_recent_file['name']
@@ -142,7 +134,7 @@ class AudioProcessor:
             for entry in audio_entries:
                 task = asyncio.create_task(self.process_audio_file(entry, job.speed), name=entry['title'])
                 tasks.append(task)
-                break  # Limit to processing one file at a time for testing MICAH TODO DELETE THIS
+                # break  # Limit to processing one file at a time for testing MICAH TODO DELETE THIS
 
             logger.info(f"Created {len(tasks)} tasks, starting processing...")
             try:
@@ -165,6 +157,7 @@ class AudioProcessor:
             else:
                 job.status = "completed"
             job.completed_at = datetime.now(timezone.utc)
+            # TODO not sure the value of this
             await self.send_notification(
                 f"Job {job_id} completed. "
                 f"Successfully processed {len(successful_results)}/{len(audio_entries)} files. "
@@ -224,18 +217,19 @@ class AudioProcessor:
                 await self.download_audio_file(url, temp_input.name)
                 with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_output:
                     await self.process_audio_with_ffmpeg(temp_input.name, temp_output.name, speed)
-                    drive_file_id = await GoogleDrive.instance().upload_to_drive(temp_output.name, f"{title}_speedup.mp3")
+                    # drive_file_id = await GoogleDrive.instance().upload_to_drive(temp_output.name, f"{title}_speedup.mp3", mimetype='audio/mpeg')
                     new_duration = int(duration / speed)
                     os.unlink(temp_input.name)
-                    os.unlink(temp_output.name)
+                    # os.unlink(temp_output.name)
                     return {
                         'title': title,
                         'original_url': url,
-                        'drive_file_id': drive_file_id,
+                        # 'drive_file_id': drive_file_id,
                         'original_duration': duration,
                         'new_duration': new_duration,
                         'uuid': file_uuid,
-                        'speed': speed
+                        'speed': speed,
+                        'temp_file': temp_output.name,
                     }
         except Exception as e:
             logger.error(f"Error processing audio file {title}: {e}")
@@ -256,7 +250,7 @@ class AudioProcessor:
             cmd = [
                 'ffmpeg',
                 '-i', input_path,
-                '-t', '10',
+                # '-t', '10',
                 '-filter:a', f'atempo={speed}',
                 '-y',
                 output_path

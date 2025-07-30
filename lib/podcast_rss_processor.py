@@ -12,6 +12,7 @@ from .gdrive import GoogleDrive
 
 logger = logging.getLogger(__name__)
 
+RSS_QUERY = "name = 'playrun_addict.xml' and trashed=false"
 
 class PodcastRSSProcessor:
     """
@@ -173,31 +174,9 @@ class PodcastRSSProcessor:
             # Fallback if minidom is not available
             return xml_string
 
-
-# Example usage
-if __name__ == "__main__":
-    # Example processed files data
-    sample_processed_files = [
-        {
-            'title': 'Episode 1: Introduction to AI',
-            'processed_url': 'https://drive.google.com/uc?id=1ABC123DEF456',
-            'new_duration': 1800,  # 30 minutes
-            'uuid': 'episode-001',
-            'published': '2024-01-15T10:00:00Z'
-        },
-        {
-            'title': 'Episode 2: Machine Learning Basics',
-            'processed_url': 'https://drive.google.com/uc?id=2XYZ789GHI012',
-            'new_duration': 2400,  # 40 minutes
-            'uuid': 'episode-002',
-            'published': '2024-01-22T10:00:00Z'
-        }
-    ]
-    
-    # Create processor and generate RSS
-    processor = PodcastRSSProcessor()
-    rss_xml = processor.create_rss_xml(sample_processed_files)
-    
-    # Format and print
-    formatted_xml = processor.format_rss_xml(rss_xml)
-    print(formatted_xml)
+    def get_rss_feed_id(self):
+        files = GoogleDrive.instance().get_files(RSS_QUERY, most_recent=True)
+        if not files:
+            logger.warning("No RSS feed file found in Google Drive.")
+            return None
+        return files[0]['id']
