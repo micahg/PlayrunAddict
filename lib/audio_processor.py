@@ -299,8 +299,6 @@ class AudioProcessor:
             if process.returncode != 0:
                 stderr_text = stderr.decode() if stderr else "Unknown error"
                 raise Exception(f"FFmpeg error (code {process.returncode}): {stderr_text}")
-                
-            logger.info(f"Audio processed successfully: {speed}x speed")
         except Exception as e:
             logger.error(f"Error processing audio with FFmpeg: {e}")
             raise
