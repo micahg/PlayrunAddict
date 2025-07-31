@@ -1,0 +1,147 @@
+import io
+import logging
+from google.auth import default
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
+from .config import Config
+
+logger = logging.getLogger(__name__)
+
+class GoogleDrive:
+    _instance = None
+
+    def __new__(cls):
+        raise RuntimeError("Use GoogleDrive.get_instance() instead of GoogleDrive()")
+
+    def service(self):
+        """
+        TODO DELETE THIS -- refactor so we're not just handling the service around.z
+        """
+        return self.instance().drive_service
+
+    @classmethod
+    def instance(cls):
+        if cls._instance is None:
+            try:
+                credentials, project_id = default(scopes=Config.SCOPES)
+                if not Config.PROJECT_ID:
+                    Config.PROJECT_ID = project_id
+                cls.drive_service = build('drive', 'v3', credentials=credentials)
+                logger.info(f"Google services initialized with project: {Config.PROJECT_ID}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Google services: {e}")
+                logger.info("Make sure you've run 'gcloud auth application-default login'")
+                raise
+            cls._instance = object.__new__(cls)
+        return cls._instance
+
+    @classmethod
+    def generate_download_url(cls, drive_id: str) -> str:
+        """
+        Convert a Google Drive URL to a direct download URL.
+        
+        Args:
+            drive_id: Google Drive file ID
+            
+        Returns:
+            Direct download URL in the format required
+        """
+        return f"https://drive.usercontent.google.com/download?id={drive_id}&export=download&authuser=0&confirm=t"
+
+
+    def _set_file_permissions(self, file_id: str, filename: str):
+        """Set file permissions to be readable by anyone with the link"""
+        permission = {
+            'type': 'anyone',
+            'role': 'reader'
+        }
+        logger.info(f"Setting permissions for {filename} (ID: {file_id})")
+        self.drive_service.permissions().create(
+            fileId=file_id,
+            body=permission
+        ).execute()
+
+    async def upload_to_drive(self, file_path: str, filename: str, mimetype='audio/mpeg') -> str:
+        try:
+            file_metadata = {
+                'name': filename,
+                'parents': []
+            }
+            media = MediaFileUpload(file_path, mimetype)
+            logger.info(f"Uploading {file_path} ({filename})")
+            
+            # Retry logic for file creation
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    file = self.drive_service.files().create(
+                        body=file_metadata,
+                        media_body=media,
+                        fields='id'
+                    ).execute()
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    logger.warning(f"Upload attempt {attempt + 1} failed for {filename}: {e}")
+            
+            file_id = file.get('id')
+            logger.info(f"File uploaded successfully: {filename} (ID: {file_id})")
+            
+            self._set_file_permissions(file_id, filename)
+            return file_id
+        except Exception as e:
+            logger.error(f"Error {filename} uploading to Google Drive: {e}")
+            raise
+
+    async def upload_string_to_drive(self, content: str, filename: str, mimetype='text/plain', file_id: str = None) -> str:
+        try:
+            file_metadata = {
+                'name': filename,
+                'parents': []
+            }
+            media = MediaIoBaseUpload(io.BytesIO(content.encode('utf-8')),
+                          mimetype=mimetype,
+                          resumable=True)
+            if file_id:
+                # Update existing file
+                file = self.drive_service.files().update(
+                    fileId=file_id,
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id'
+                ).execute()
+            else:
+                file = self.drive_service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id'
+                ).execute()
+            file_id = file.get('id')
+            permission = {
+                'type': 'anyone',
+                'role': 'reader'
+            }
+            self.drive_service.permissions().create(
+                fileId=file_id,
+                body=permission
+            ).execute()
+            return file_id
+        except Exception as e:
+            logger.error(f"Error uploading string to Google Drive: {e}")
+            raise
+
+    def get_files(self, query: str, most_recent: bool = False):
+        orderBy = 'modifiedTime desc' if most_recent else None
+        pageSize = 1 if most_recent else None
+        try:
+            results = GoogleDrive.instance().drive_service.files().list(
+                q=query,
+                orderBy=orderBy,
+                pageSize=pageSize,
+                fields="files(id, name, modifiedTime)"
+            ).execute()
+            return results.get('files', [])
+        except Exception as e:
+            logger.error(f"Error searching for existing RSS file: {e}")
+            raise
