@@ -81,7 +81,7 @@ async def main():
             return
 
     xml_feed = podcast_processor.create_rss_xml(results)
-    rss_drive_id = await GoogleDrive.instance().upload_string_to_drive(xml_feed, "playrun_addict.xml", mimetype='application/rss+xml')
+    rss_drive_id = await GoogleDrive.instance().upload_string_to_drive(xml_feed, "playrun_addict.xml", mimetype='application/rss+xml', file_id=rss_drive_id)
     rss_download_url = GoogleDrive.generate_download_url(rss_drive_id)
     print(f"RSS Feed Download URL: {rss_download_url}")
 
