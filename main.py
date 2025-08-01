@@ -62,6 +62,8 @@ async def main():
     processor = AudioProcessor()
     podcast_processor = PodcastRSSProcessor()
     rss_drive_id = podcast_processor.get_rss_feed_id()
+    rss_feed = podcast_processor.download_rss_feed(rss_drive_id)
+    episode_mapping = podcast_processor.extract_episode_mapping(rss_feed)
 
     results = await processor.check_for_new_m3u8_files()
     # check for an existing playlist

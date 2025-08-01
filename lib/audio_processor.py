@@ -124,7 +124,7 @@ class AudioProcessor:
         try:
             job.status = "processing"
             logger.info(f"Processing job {job_id}: {job.m3u8_file_name}")
-            m3u8_content = await self.download_drive_file(job.m3u8_file_id)
+            m3u8_content = GoogleDrive.instance().download_file(file_id=job.m3u8_file_id)
             audio_entries = self.parse_m3u8(m3u8_content)
             if not audio_entries:
                 raise Exception("No audio files found in M3U8 playlist")
