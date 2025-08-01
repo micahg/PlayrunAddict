@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 RSS_QUERY = "name = 'playrun_addict.xml' and trashed=false"
 
+NAMESPACES = {
+    'playrunaddict': 'http://playrunaddict.com/rss/1.0',
+    'itunes': 'http://www.itunes.com/dtds/podcast-1.0.dtd'
+}
+
 class PodcastRSSProcessor:
     """
     Handles the generation of podcast RSS XML files from processed audio files.
@@ -240,6 +245,10 @@ class PodcastRSSProcessor:
                 title_elem = item.find('title')
                 title = title_elem.text if title_elem is not None and title_elem.text else "Untitled Episode"
                 
+                # Get original duration from custom namespace
+                original_duration_elem = item.find('playrunaddict:originalduration', NAMESPACES)
+                original_duration = original_duration_elem.text if original_duration_elem is not None and original_duration_elem.text else "0"
+                
                 # Get enclosure info
                 enclosure = item.find('enclosure')
                 if enclosure is not None:
@@ -248,9 +257,9 @@ class PodcastRSSProcessor:
                     
                     episode_mapping[title] = {
                         'download_url': download_url,
-                        'length': length
+                        'length': length,
+                        'original_duration': original_duration
                     }
-                    logger.debug(f"Mapped episode: {title} -> {download_url}")
                 else:
                     logger.warning(f"No enclosure found for episode: {title}")
             
