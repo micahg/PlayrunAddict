@@ -129,8 +129,7 @@ class PodcastRSSProcessor:
         # Enclosure (the actual audio file)
         enclosure = ET.SubElement(item, "enclosure")
         
-        # Convert Google Drive URL to download URL
-        download_url = GoogleDrive.generate_download_url(file_data['drive_file_id'])
+        download_url = file_data.get('download_url') or GoogleDrive.generate_download_url(file_data['drive_file_id'])
         enclosure.set("url", download_url)
         
         # Set enclosure type (MIME type)
@@ -244,7 +243,10 @@ class PodcastRSSProcessor:
                 # Get title
                 title_elem = item.find('title')
                 title = title_elem.text if title_elem is not None and title_elem.text else "Untitled Episode"
-                
+
+                guid_elem = item.find('guid')
+                guid = guid_elem.text if guid_elem is not None and guid_elem.text else None
+
                 # Get original duration from custom namespace
                 original_duration_elem = item.find('playrunaddict:originalduration', NAMESPACES)
                 original_duration = original_duration_elem.text if original_duration_elem is not None and original_duration_elem.text else "0"
@@ -260,6 +262,8 @@ class PodcastRSSProcessor:
                         'length': length,
                         'original_duration': original_duration
                     }
+                    if guid:
+                        episode_mapping[title]['original_guid'] = guid
                 else:
                     logger.warning(f"No enclosure found for episode: {title}")
             

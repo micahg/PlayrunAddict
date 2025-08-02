@@ -81,7 +81,7 @@ class AudioProcessor:
                 
         return most_recent
 
-    async def check_for_new_m3u8_files(self):
+    async def check_for_new_m3u8_files(self, old_eps: dict[str, dict[str, str | int | float]]={}):
         try:
             most_recent_file = GoogleDrive.instance().get_files(M3U_QUERY, most_recent=True)[0]
                 
@@ -104,7 +104,7 @@ class AudioProcessor:
             )
             self.jobs[job_id] = job
             self.processed_files.add(file_id)
-            results = await asyncio.create_task(self.process_m3u8_file(job_id))
+            results = await asyncio.create_task(self.process_m3u8_file(job_id, old_eps))
         except Exception as e:
             logger.error(f"Error checking for new M3U8 files: {e}")
         return results
@@ -119,7 +119,7 @@ class AudioProcessor:
                 logger.error(f"Error in fallback polling: {e}")
                 await asyncio.sleep(Config.POLL_INTERVAL)
 
-    async def process_m3u8_file(self, job_id: str):
+    async def process_m3u8_file(self, job_id: str, old_eps: dict[str, dict[str, str]]={}):
         job = self.jobs[job_id]
         try:
             job.status = "processing"
@@ -134,6 +134,31 @@ class AudioProcessor:
             logger.info("Starting downloads and processing...")
             tasks = []
             for entry in audio_entries:
+                title = entry['title']
+                duration = entry['duration']
+                expected_new_duration = int(duration / job.speed)
+                
+                # Check if we can reuse existing processed file
+                if (title in old_eps and 
+                    'original_duration' in old_eps[title] and 
+                    'length' in old_eps[title] and
+                    int(float(old_eps[title]['original_duration'])) == int(duration) and
+                    int(float(old_eps[title]['length'])) == expected_new_duration):
+                    
+                    logger.info(f"Reusing existing processed file: {title}")
+                    # Create a task that immediately returns the reused data
+                    reused_result = {
+                        'title': title,
+                        'original_duration': int(duration),
+                        'new_duration': expected_new_duration,
+                        'uuid': entry['uuid'],
+                        'speed': job.speed,
+                        'download_url': old_eps[title]['download_url'],
+                    }
+                    task = asyncio.create_task(asyncio.sleep(0, result=reused_result), name=f"{title} (reused)")
+                    tasks.append(task)
+                    continue
+                
                 temp_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
                 temp_file.close()  # Close file handle but keep the file
                 

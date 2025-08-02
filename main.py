@@ -65,7 +65,7 @@ async def main():
     rss_feed = podcast_processor.download_rss_feed(rss_drive_id)
     episode_mapping = podcast_processor.extract_episode_mapping(rss_feed)
 
-    results = await processor.check_for_new_m3u8_files()
+    results = await processor.check_for_new_m3u8_files(episode_mapping)
     # check for an existing playlist
     if not results or len(results) == 0:
         logger.error("M3U8 resulted in no files")
@@ -73,6 +73,15 @@ async def main():
     
     logger.info(f"Processed {len(results)} audio files")
     for result in results:
+        # Skip upload for reused files that already have download_url
+        if result.get('download_url'):
+            logger.info(f"Skipping upload for reused file: {result['title']}")
+            # Extract drive_file_id from download_url for consistency
+            download_url = result['download_url']
+            if 'id=' in download_url:
+                result['drive_file_id'] = download_url.split('id=')[1].split('&')[0]
+            continue
+            
         logger.info(f"Uploading {result['title']} to Google Drive")
         try:
             drive_file_id = await GoogleDrive.instance().upload_to_drive(result['temp_file'], f"{result['title']}.mp3")
