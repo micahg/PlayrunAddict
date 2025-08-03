@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 RSS_QUERY = "name = 'playrun_addict.xml' and trashed=false"
 
+NAMESPACES = {
+    'playrunaddict': 'http://playrunaddict.com/rss/1.0',
+    'itunes': 'http://www.itunes.com/dtds/podcast-1.0.dtd'
+}
+
 class PodcastRSSProcessor:
     """
     Handles the generation of podcast RSS XML files from processed audio files.
@@ -40,6 +45,7 @@ class PodcastRSSProcessor:
         rss = ET.Element("rss")
         rss.set("version", "2.0")
         rss.set("xmlns:itunes", "http://www.itunes.com/dtds/podcast-1.0.dtd")
+        rss.set("xmlns:playrunaddict", "http://playrunaddict.com/rss/1.0")
         
         # Create channel element
         channel = ET.SubElement(rss, "channel")
@@ -98,29 +104,17 @@ class PodcastRSSProcessor:
         
         # GUID
         guid = ET.SubElement(item, "guid")
-        guid.text = file_data.get('uuid', f"episode-{hash(file_data.get('title', ''))}")
+        guid.text = file_data.get('original_guid') or file_data.get('uuid', f"episode-{hash(file_data.get('title', ''))}")
         guid.set("isPermaLink", "false")
-        
-        # Publication date (use current time if not provided)
-        # pub_date = ET.SubElement(item, "pubDate")
-        # if 'published' in file_data:
-        #     # If published is already a datetime string, use it
-        #     if isinstance(file_data['published'], str):
-        #         try:
-        #             dt = datetime.fromisoformat(file_data['published'].replace('Z', '+00:00'))
-        #             pub_date.text = dt.strftime("%a, %d %b %Y %H:%M:%S %z")
-        #         except ValueError:
-        #             pub_date.text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
-        #     else:
-        #         pub_date.text = file_data['published'].strftime("%a, %d %b %Y %H:%M:%S %z")
-        # else:
-        #     pub_date.text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
+
+        # Original duration (custom namespace)
+        original_duration = ET.SubElement(item, "playrunaddict:originalduration")
+        original_duration.text = str(file_data.get('original_duration', 0))
         
         # Enclosure (the actual audio file)
         enclosure = ET.SubElement(item, "enclosure")
         
-        # Convert Google Drive URL to download URL
-        download_url = GoogleDrive.generate_download_url(file_data['drive_file_id'])
+        download_url = file_data.get('download_url') or GoogleDrive.generate_download_url(file_data['drive_file_id'])
         enclosure.set("url", download_url)
         
         # Set enclosure type (MIME type)
@@ -180,3 +174,87 @@ class PodcastRSSProcessor:
             logger.warning("No RSS feed file found in Google Drive.")
             return None
         return files[0]['id']
+    
+    def download_rss_feed(self, file_id: str) -> ET.Element:
+        """
+        Download the RSS feed file from Google Drive and parse it as XML.
+        
+        Args:
+            file_id: The ID of the RSS feed file
+            
+        Returns:
+            The parsed XML root element
+        """
+        try:
+            xml_content = GoogleDrive.instance().download_file(file_id)
+            root = ET.fromstring(xml_content)
+            logger.info(f"Successfully downloaded and parsed RSS feed {file_id}")
+            return root
+
+        except Exception as e:
+            logger.error(f"Error downloading and parsing RSS feed file {file_id}: {e}")
+            raise
+
+    def extract_episode_mapping(self, root: ET.Element) -> Dict[str, Dict[str, str]]:
+        """
+        Extract episode mapping from RSS XML root element.
+        
+        Args:
+            root: The RSS XML root element
+            
+        Returns:
+            Dictionary mapping episode titles to their download info:
+            {
+                "Episode Title": {
+                    "download_url": "https://...",
+                    "length": "12345"
+                }
+            }
+        """
+        episode_mapping = {}
+        
+        try:
+            # Find the channel element
+            channel = root.find('channel')
+            if channel is None:
+                logger.warning("No channel element found in RSS XML")
+                return episode_mapping
+            
+            # Find all item elements
+            items = channel.findall('item')
+            logger.info(f"Found {len(items)} episodes in RSS feed")
+            
+            for item in items:
+                # Get title
+                title_elem = item.find('title')
+                title = title_elem.text if title_elem is not None and title_elem.text else "Untitled Episode"
+
+                guid_elem = item.find('guid')
+                guid = guid_elem.text if guid_elem is not None and guid_elem.text else None
+
+                # Get original duration from custom namespace
+                original_duration_elem = item.find('playrunaddict:originalduration', NAMESPACES)
+                original_duration = original_duration_elem.text if original_duration_elem is not None and original_duration_elem.text else "0"
+                
+                # Get enclosure info
+                enclosure = item.find('enclosure')
+                if enclosure is not None:
+                    download_url = enclosure.get('url', '')
+                    length = enclosure.get('length', '0')
+                    
+                    episode_mapping[title] = {
+                        'download_url': download_url,
+                        'length': length,
+                        'original_duration': original_duration
+                    }
+                    if guid:
+                        episode_mapping[title]['original_guid'] = guid
+                else:
+                    logger.warning(f"No enclosure found for episode: {title}")
+            
+            logger.info(f"Successfully extracted {len(episode_mapping)} episode mappings")
+            return episode_mapping
+            
+        except Exception as e:
+            logger.error(f"Error extracting episode mapping from RSS XML: {e}")
+            raise
