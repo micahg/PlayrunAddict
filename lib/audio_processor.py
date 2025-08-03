@@ -144,16 +144,18 @@ class AudioProcessor:
                     'length' in old_eps[title] and
                     int(float(old_eps[title]['original_duration'])) == int(duration) and
                     int(float(old_eps[title]['length'])) == expected_new_duration):
+                    old_ep = old_eps[title]
                     
                     logger.info(f"Reusing existing processed file: {title}")
                     # Create a task that immediately returns the reused data
                     reused_result = {
                         'title': title,
                         'original_duration': int(duration),
+                        'original_guid': old_ep['original_guid'],
                         'new_duration': expected_new_duration,
                         'uuid': entry['uuid'],
                         'speed': job.speed,
-                        'download_url': old_eps[title]['download_url'],
+                        'download_url': old_ep['download_url'],
                     }
                     task = asyncio.create_task(asyncio.sleep(0, result=reused_result), name=f"{title} (reused)")
                     tasks.append(task)

@@ -104,27 +104,12 @@ class PodcastRSSProcessor:
         
         # GUID
         guid = ET.SubElement(item, "guid")
-        guid.text = file_data.get('uuid', f"episode-{hash(file_data.get('title', ''))}")
+        guid.text = file_data.get('original_guid') or file_data.get('uuid', f"episode-{hash(file_data.get('title', ''))}")
         guid.set("isPermaLink", "false")
 
         # Original duration (custom namespace)
         original_duration = ET.SubElement(item, "playrunaddict:originalduration")
         original_duration.text = str(file_data.get('original_duration', 0))
-        
-        # Publication date (use current time if not provided)
-        # pub_date = ET.SubElement(item, "pubDate")
-        # if 'published' in file_data:
-        #     # If published is already a datetime string, use it
-        #     if isinstance(file_data['published'], str):
-        #         try:
-        #             dt = datetime.fromisoformat(file_data['published'].replace('Z', '+00:00'))
-        #             pub_date.text = dt.strftime("%a, %d %b %Y %H:%M:%S %z")
-        #         except ValueError:
-        #             pub_date.text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
-        #     else:
-        #         pub_date.text = file_data['published'].strftime("%a, %d %b %Y %H:%M:%S %z")
-        # else:
-        #     pub_date.text = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %z")
         
         # Enclosure (the actual audio file)
         enclosure = ET.SubElement(item, "enclosure")
