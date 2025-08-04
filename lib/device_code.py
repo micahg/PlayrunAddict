@@ -6,19 +6,68 @@ Google OAuth2 Device Code Flow implementation using aiohttp
 import asyncio
 import json
 import logging
+import os
+import pickle
 import time
 from typing import Dict, Any, Optional
 import aiohttp
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+
+from lib.config import Config
 
 logger = logging.getLogger(__name__)
 
 class DeviceCodeAuth:
     """Google OAuth2 Device Code Flow implementation using aiohttp"""
     
-    def __init__(self, credentials_file: str = 'credentials.json'):
+    def __init__(self, credentials_file: str = 'credentials.json', token_cache_file: str = 'token.pickle'):
         self.credentials_file = credentials_file
+        self.token_cache_file = token_cache_file
         self.client_config = self._load_client_config()
+        
+    def _load_cached_credentials(self) -> Optional[Credentials]:
+        """Load cached credentials from file if they exist and are valid"""
+        if not os.path.exists(self.token_cache_file):
+            logger.info("No cached credentials found")
+            return None
+            
+        try:
+            with open(self.token_cache_file, 'rb') as token_file:
+                credentials = pickle.load(token_file)
+                
+            # Check if credentials are valid
+            if not credentials.valid:
+                if credentials.expired and credentials.refresh_token:
+                    logger.info("Cached credentials expired, attempting refresh...")
+                    try:
+                        credentials.refresh(Request())
+                        # Save refreshed credentials
+                        self._save_credentials(credentials)
+                        logger.info("Successfully refreshed cached credentials")
+                        return credentials
+                    except Exception as e:
+                        logger.warning(f"Failed to refresh credentials: {e}")
+                        return None
+                else:
+                    logger.info("Cached credentials are invalid and cannot be refreshed")
+                    return None
+            else:
+                logger.info("Using cached credentials")
+                return credentials
+                
+        except Exception as e:
+            logger.warning(f"Error loading cached credentials: {e}")
+            return None
+    
+    def _save_credentials(self, credentials: Credentials):
+        """Save credentials to cache file"""
+        try:
+            with open(self.token_cache_file, 'wb') as token_file:
+                pickle.dump(credentials, token_file)
+            logger.info(f"Credentials cached to {self.token_cache_file}")
+        except Exception as e:
+            logger.warning(f"Failed to cache credentials: {e}")
         
     def _load_client_config(self) -> Dict[str, Any]:
         """Load client configuration from credentials.json"""
@@ -41,7 +90,7 @@ class DeviceCodeAuth:
     
     async def authenticate(self, scopes: list[str]) -> Credentials:
         """
-        Perform device code authentication flow
+        Perform device code authentication flow with caching
         
         Args:
             scopes: List of OAuth2 scopes to request
@@ -49,6 +98,19 @@ class DeviceCodeAuth:
         Returns:
             Google OAuth2 Credentials object
         """
+        # Try to load cached credentials first
+        cached_credentials = self._load_cached_credentials()
+        if cached_credentials and cached_credentials.valid:
+            # Verify scopes match (in case they changed)
+            cached_scopes = set(cached_credentials.scopes or [])
+            requested_scopes = set(scopes)
+            
+            if cached_scopes >= requested_scopes:  # Cached scopes include all requested scopes
+                logger.info("Using cached credentials with sufficient scopes")
+                return cached_credentials
+            else:
+                logger.info("Cached credentials don't have all requested scopes, re-authenticating")
+        
         logger.info("Starting Google OAuth2 Device Code Flow...")
         
         # Step 1: Get device code
@@ -62,6 +124,9 @@ class DeviceCodeAuth:
         
         # Step 4: Create credentials object
         credentials = self._create_credentials(token_response)
+        
+        # Step 5: Cache the credentials
+        self._save_credentials(credentials)
         
         logger.info("Authentication successful!")
         return credentials
@@ -165,20 +230,22 @@ class DeviceCodeAuth:
 
 
 # Convenience function for easy usage
-async def authenticate_with_device_code(scopes: list[str], 
-                                      credentials_file: str = 'credentials.json') -> Credentials:
+async def authenticate_with_device_code(credentials_file: str = 'credentials.json', 
+                                      token_cache_file: str = 'token.pickle') -> Credentials:
     """
-    Convenience function to perform device code authentication
+    Convenience function to perform device code authentication with caching
     
     Args:
-        scopes: List of OAuth2 scopes to request
         credentials_file: Path to credentials.json file
+        token_cache_file: Path to cache file for storing tokens
         
     Returns:
         Google OAuth2 Credentials object
     """
-    auth = DeviceCodeAuth(credentials_file)
-    return await auth.authenticate(scopes)
+    scopes = Config.SCOPES
+    auth = DeviceCodeAuth(credentials_file, token_cache_file)
+    result = await auth.authenticate(scopes)
+    return result
 
 
 # Example usage
