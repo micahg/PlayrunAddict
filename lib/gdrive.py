@@ -149,9 +149,18 @@ class GoogleDrive:
     def download_file(self, file_id: str) -> str:
         """Download a file and return as string (for text files)"""
         try:
-            request = self.drive_service.files().get_media(fileId=file_id)
-            content = request.execute()
+            content = self.download_file_to_bytes(file_id)
         except Exception as e:
             logger.error(f"Error downloading file {file_id} to string: {e}")
             raise
         return content.decode('utf-8')
+    
+    def download_file_to_bytes(self, file_id: str) -> bytes:
+        """Download a file and return as bytes"""
+        try:
+            request = self.drive_service.files().get_media(fileId=file_id)
+            content = request.execute()
+        except Exception as e:
+            logger.error(f"Error downloading file {file_id} to bytes: {e}")
+            raise
+        return content

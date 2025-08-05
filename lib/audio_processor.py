@@ -137,7 +137,8 @@ class AudioProcessor:
                 title = entry['title']
                 duration = entry['duration']
                 expected_new_duration = int(duration / job.speed)
-                
+                offset_ms = old_eps.get(title, {}).get('offset', 0)
+               
                 # Check if we can reuse existing processed file
                 if (title in old_eps and 
                     'original_duration' in old_eps[title] and 
@@ -173,7 +174,7 @@ class AudioProcessor:
                 entry['local_file'] = temp_file.name
                 
                 # Start processing immediately after download
-                task = asyncio.create_task(self.process_audio_file(entry, job.speed), name=entry['title'])
+                task = asyncio.create_task(self.process_audio_file(entry, job.speed, offset_ms), name=entry['title'])
                 tasks.append(task)
 
             logger.info(f"All downloads complete, {len(tasks)} processing tasks running...")
@@ -246,7 +247,7 @@ class AudioProcessor:
             logger.error(f"Error downloading file {file_id}: {e}")
             raise
 
-    async def process_audio_file(self, entry: Dict[str, Any], speed: float) -> Dict[str, Any]:
+    async def process_audio_file(self, entry: Dict[str, Any], speed: float, offset_ms: int = 0) -> Dict[str, Any]:
         try:
             url = entry['url']
             title = entry['title']
@@ -258,7 +259,7 @@ class AudioProcessor:
             
             with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_output:
                 ffmpeg_start = time.time()
-                await self.process_audio_with_ffmpeg(local_file, temp_output.name, speed)
+                await self.process_audio_with_ffmpeg(local_file, temp_output.name, speed, offset_ms)
                 ffmpeg_time = time.time() - ffmpeg_start
                 logger.info(f"FFmpeg processed {title} in {ffmpeg_time:.2f} seconds")
                 
@@ -274,6 +275,7 @@ class AudioProcessor:
                     'new_duration': new_duration,
                     'uuid': file_uuid,
                     'speed': speed,
+                    'offset': offset_ms,
                     'temp_file': temp_output.name,
                 }
         except Exception as e:
@@ -301,18 +303,26 @@ class AudioProcessor:
             # Re-raise other exceptions as-is
             raise
 
-    async def process_audio_with_ffmpeg(self, input_path: str, output_path: str, speed: float):
+    async def process_audio_with_ffmpeg(self, input_path: str, output_path: str, speed: float, offset_ms: int = 0):
         try:
             cmd = [
                 'ffmpeg',
                 '-i', input_path,
-                # '-t', '10',
+            ]
+            
+            # Add seek offset if provided
+            if offset_ms > 0:
+                offset_time = self._convert_milliseconds_to_time(offset_ms)
+                cmd.extend(['-ss', offset_time])
+                logger.info(f"Starting FFmpeg processing with {speed}x speed and offset {offset_time}...")
+            else:
+                logger.info(f"Starting FFmpeg processing with {speed}x speed...")
+            
+            cmd.extend([
                 '-filter:a', f'atempo={speed}',
                 '-y',
                 output_path
-            ]
-            
-            logger.info(f"Starting FFmpeg processing with {speed}x speed...")
+            ])
             
             # Use async subprocess instead of blocking subprocess.run()
             process = await asyncio.create_subprocess_exec(
@@ -354,3 +364,29 @@ class AudioProcessor:
 
     def list_jobs(self) -> List[ProcessingJob]:
         return list(self.jobs.values())
+
+    def _convert_milliseconds_to_time(self, milliseconds: int) -> str:
+        """
+        Convert milliseconds to HH:MM:SS format
+        
+        :param milliseconds: Time offset in milliseconds
+        :return: Time in HH:MM:SS format
+        :raises Exception: If time is more than 24 hours
+        """
+        if milliseconds < 0:
+            raise Exception("Offset cannot be negative")
+        
+        # Convert milliseconds to seconds
+        total_seconds = milliseconds // 1000
+        
+        # Check if more than 24 hours (86400 seconds)
+        if total_seconds >= 86400:
+            hours = total_seconds // 3600
+            raise Exception(f"Offset is {hours} hours, which exceeds the 24-hour limit")
+        
+        # Calculate hours, minutes, seconds
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"

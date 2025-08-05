@@ -6,37 +6,9 @@ uploads to cloud storage, and pushes to Playrun API.
 """
 
 import asyncio
-import json
 import logging
 import os
 from platform import processor
-import tempfile
-import time
-import uuid
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-from urllib.parse import urlparse
-import hashlib
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-import aiohttp
-import requests
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
-from fastapi.responses import JSONResponse
-from google.auth import default
-from google.cloud import pubsub_v1
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-import subprocess
-import multiprocessing
-from pydantic import BaseModel
-import re
-import hmac
-import base64
 
 # Configure logging
 logging.basicConfig(
@@ -50,6 +22,7 @@ from lib.audio_processor import AudioProcessor
 from lib.podcast_rss_processor import PodcastRSSProcessor
 from lib.config import Config
 from lib.gdrive import GoogleDrive
+from lib.podcastaddict_backup import PodcastAddictProcessor
 
 async def main():
     # Initialize Google Drive service
@@ -61,9 +34,14 @@ async def main():
 
     processor = AudioProcessor()
     podcast_processor = PodcastRSSProcessor()
+    backup_processor = PodcastAddictProcessor()
+
+
     rss_drive_id = podcast_processor.get_rss_feed_id()
     rss_feed = podcast_processor.download_rss_feed(rss_drive_id)
     episode_mapping = podcast_processor.extract_episode_mapping(rss_feed)
+
+    await backup_processor.add_listening_progress(episode_mapping)
 
     results = await processor.check_for_new_m3u8_files(episode_mapping)
     # check for an existing playlist
