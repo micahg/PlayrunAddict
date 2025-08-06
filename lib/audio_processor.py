@@ -136,15 +136,16 @@ class AudioProcessor:
             for entry in audio_entries:
                 title = entry['title']
                 duration = entry['duration']
-                expected_new_duration = int(duration / job.speed)
                 offset_ms = old_eps.get(title, {}).get('offset', 0)
+                expected_new_duration = int((duration-offset_ms) / job.speed)
                
                 # Check if we can reuse existing processed file
                 if (title in old_eps and 
                     'original_duration' in old_eps[title] and 
                     'length' in old_eps[title] and
+                    int(float(old_eps[title]['length'])) == expected_new_duration and
                     int(float(old_eps[title]['original_duration'])) == int(duration) and
-                    int(float(old_eps[title]['length'])) == expected_new_duration):
+                    int(float(old_eps[title]['original_offset'])) == offset_ms):
                     old_ep = old_eps[title]
                     
                     logger.info(f"Reusing existing processed file: {title}")
@@ -263,7 +264,7 @@ class AudioProcessor:
                 ffmpeg_time = time.time() - ffmpeg_start
                 logger.info(f"FFmpeg processed {title} in {ffmpeg_time:.2f} seconds")
                 
-                new_duration = int(duration / speed)
+                new_duration = int((duration - offset_ms) / speed)
                 
                 # Clean up input file
                 os.unlink(local_file)
@@ -271,7 +272,7 @@ class AudioProcessor:
                 return {
                     'title': title,
                     'original_url': url,
-                    'original_duration': duration,
+                    'original_duration': int(duration),
                     'new_duration': new_duration,
                     'uuid': file_uuid,
                     'speed': speed,

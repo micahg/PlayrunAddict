@@ -111,6 +111,10 @@ class PodcastRSSProcessor:
         original_duration = ET.SubElement(item, "playrunaddict:originalduration")
         original_duration.text = str(file_data.get('original_duration', 0))
         
+        # Original offset (custom namespace)
+        offset = ET.SubElement(item, "playrunaddict:offset")
+        offset.text = str(file_data.get('offset', 0))
+
         # Enclosure (the actual audio file)
         enclosure = ET.SubElement(item, "enclosure")
         
@@ -235,6 +239,9 @@ class PodcastRSSProcessor:
                 # Get original duration from custom namespace
                 original_duration_elem = item.find('playrunaddict:originalduration', NAMESPACES)
                 original_duration = original_duration_elem.text if original_duration_elem is not None and original_duration_elem.text else "0"
+
+                original_offset_elem = item.find('playrunaddict:offset', NAMESPACES)
+                original_offset = original_offset_elem.text if original_offset_elem is not None and original_offset_elem.text else "0"
                 
                 # Get enclosure info
                 enclosure = item.find('enclosure')
@@ -245,7 +252,8 @@ class PodcastRSSProcessor:
                     episode_mapping[title] = {
                         'download_url': download_url,
                         'length': length,
-                        'original_duration': original_duration
+                        'original_duration': original_duration,
+                        'original_offset': original_offset
                     }
                     if guid:
                         episode_mapping[title]['original_guid'] = guid
