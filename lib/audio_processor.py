@@ -307,22 +307,21 @@ class AudioProcessor:
         try:
             cmd = [
                 'ffmpeg',
-                '-i', input_path,
             ]
             
-            # Add seek offset if provided
+            # Add seek offset if provided - this has to go before -i
             if offset_ms > 0:
                 offset_time = self._convert_milliseconds_to_time(offset_ms)
                 cmd.extend(['-ss', offset_time])
-                logger.info(f"Starting FFmpeg processing with {speed}x speed and offset {offset_time}...")
-            else:
-                logger.info(f"Starting FFmpeg processing with {speed}x speed...")
             
             cmd.extend([
+                '-i', input_path,
                 '-filter:a', f'atempo={speed}',
                 '-y',
                 output_path
             ])
+
+            logger.info(f"Running FFmpeg command: {' '.join(cmd)}")
             
             # Use async subprocess instead of blocking subprocess.run()
             process = await asyncio.create_subprocess_exec(
